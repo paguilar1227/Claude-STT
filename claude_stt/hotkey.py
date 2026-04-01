@@ -1,5 +1,7 @@
 """Double-tap hotkey detection for push-to-talk."""
 
+from __future__ import annotations
+
 import time
 import threading
 from typing import Callable
@@ -15,24 +17,31 @@ class DoubleTapDetector:
     Ignores single taps, holds, and normal Shift usage for typing.
     """
 
-    def __init__(self, on_double_tap: Callable[[], None]):
+    def __init__(self, on_double_tap: Callable[[], None], key: str | None = None):
         self._on_double_tap = on_double_tap
+        self._key = key or config.DOUBLE_TAP_KEY
         self._last_release_time: float = 0.0
         self._key_held = False
         self._lock = threading.Lock()
+        self._hooks: list = []
 
     def start(self):
         """Register global keyboard hooks."""
-        keyboard.on_press_key(
-            config.DOUBLE_TAP_KEY, self._on_press, suppress=False
+        self._hooks.append(
+            keyboard.on_press_key(self._key, self._on_press, suppress=False)
         )
-        keyboard.on_release_key(
-            config.DOUBLE_TAP_KEY, self._on_release, suppress=False
+        self._hooks.append(
+            keyboard.on_release_key(self._key, self._on_release, suppress=False)
         )
 
     def stop(self):
-        """Unregister all hooks."""
-        keyboard.unhook_all()
+        """Unregister this detector's hooks."""
+        for hook in self._hooks:
+            try:
+                keyboard.unhook(hook)
+            except Exception:
+                pass
+        self._hooks.clear()
 
     def _on_press(self, event):
         """Track that the key is being held down."""

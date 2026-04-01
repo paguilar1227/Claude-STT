@@ -13,10 +13,28 @@ logger = logging.getLogger(__name__)
 _model = None
 
 
+def _is_model_cached(model_name: str) -> bool:
+    """Check if the Whisper model is already in the local HuggingFace cache."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+        result = try_to_load_from_cache(f"Systran/faster-whisper-{model_name}", "model.bin")
+        return isinstance(result, str)  # returns a path string if cached, _CACHED_NO_EXIST or None otherwise
+    except Exception:
+        return False
+
+
 def load_model():
     """Load the Whisper model into memory. Call once at startup."""
     global _model
     from faster_whisper import WhisperModel
+
+    if config.OFFLINE and not _is_model_cached(config.MODEL_SIZE):
+        print(
+            f"ERROR: Offline mode is enabled but the '{config.MODEL_SIZE}' model has not been downloaded yet.\n"
+            f"Run once without --offline to download the model:\n"
+            f"  .\\claude-stt.bat --model {config.MODEL_SIZE}\n"
+        )
+        raise SystemExit(1)
 
     logger.info(f"Loading Whisper model '{config.MODEL_SIZE}' (compute={config.COMPUTE_TYPE})...")
     t0 = time.monotonic()
@@ -24,6 +42,7 @@ def load_model():
         config.MODEL_SIZE,
         device="cpu",
         compute_type=config.COMPUTE_TYPE,
+        local_files_only=config.OFFLINE,
     )
     elapsed = time.monotonic() - t0
     logger.info(f"Model loaded in {elapsed:.1f}s")
@@ -72,7 +91,32 @@ def transcribe(audio: np.ndarray) -> str | None:
         logger.info(f"Hallucination detected, skipping: {raw_text!r}")
         return None
 
-    return raw_text
+    corrected = _apply_word_corrections(raw_text)
+    if corrected != raw_text:
+        logger.info(f"Word corrections applied: {raw_text!r} -> {corrected!r}")
+
+    return corrected
+
+
+def _apply_word_corrections(text: str) -> str:
+    """Apply configured word corrections to transcribed text.
+
+    Matches are case-insensitive. Word-boundary matching is used for
+    simple words; patterns containing punctuation use lookahead/lookbehind
+    for whitespace or string boundaries instead.
+    """
+    result = text
+    for wrong, correct in config.WORD_CORRECTIONS.items():
+        # If the pattern has non-word chars (dots, spaces), use whitespace boundaries
+        if re.search(r'[^\w]', wrong):
+            pattern = re.compile(
+                r'(?<!\w)' + re.escape(wrong) + r'(?!\w)',
+                re.IGNORECASE,
+            )
+        else:
+            pattern = re.compile(r'\b' + re.escape(wrong) + r'\b', re.IGNORECASE)
+        result = pattern.sub(correct, result)
+    return result
 
 
 def _is_hallucination(text: str) -> bool:

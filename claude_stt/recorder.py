@@ -1,5 +1,7 @@
 """Audio capture from default microphone."""
 
+from __future__ import annotations
+
 import logging
 import threading
 import time

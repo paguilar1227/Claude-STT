@@ -15,7 +15,7 @@ def _generate_tone(frequency: float, duration_ms: int) -> np.ndarray:
         endpoint=False,
     )
     # Apply a short fade-in/fade-out to avoid click artifacts
-    tone = np.sin(2 * np.pi * frequency * t).astype(np.float32)
+    tone = (np.sin(2 * np.pi * frequency * t) * config.TONE_VOLUME).astype(np.float32)
     fade_samples = min(len(tone) // 4, int(config.TONE_SAMPLE_RATE * 0.01))
     if fade_samples > 0:
         fade_in = np.linspace(0, 1, fade_samples, dtype=np.float32)
@@ -35,13 +35,17 @@ def _generate_two_tone(freqs: tuple[float, float]) -> np.ndarray:
 # Pre-generate at import time so playback is instant
 _engage_beep: np.ndarray | None = None
 _disengage_beep: np.ndarray | None = None
+_tts_on_beep: np.ndarray | None = None
+_tts_off_beep: np.ndarray | None = None
 
 
 def init():
     """Pre-generate beep sounds. Call once at startup."""
-    global _engage_beep, _disengage_beep
+    global _engage_beep, _disengage_beep, _tts_on_beep, _tts_off_beep
     _engage_beep = _generate_two_tone(config.ENGAGE_FREQS)
     _disengage_beep = _generate_two_tone(config.DISENGAGE_FREQS)
+    _tts_on_beep = _generate_tone(config.TTS_ON_FREQ, config.TONE_DURATION_MS)
+    _tts_off_beep = _generate_tone(config.TTS_OFF_FREQ, config.TONE_DURATION_MS)
 
 
 def play_engage():
@@ -54,3 +58,15 @@ def play_disengage():
     """Play the descending two-tone beep (recording stops)."""
     if _disengage_beep is not None:
         sd.play(_disengage_beep, samplerate=config.TONE_SAMPLE_RATE, blocking=False)
+
+
+def play_tts_on():
+    """Play a single high beep (TTS enabled)."""
+    if _tts_on_beep is not None:
+        sd.play(_tts_on_beep, samplerate=config.TONE_SAMPLE_RATE, blocking=False)
+
+
+def play_tts_off():
+    """Play a single low beep (TTS disabled)."""
+    if _tts_off_beep is not None:
+        sd.play(_tts_off_beep, samplerate=config.TONE_SAMPLE_RATE, blocking=False)
